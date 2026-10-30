@@ -1,0 +1,264 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#142b25">
+<title>حاسبة الهاند</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f3f5f3;color:#18251f;font-family:Arial,sans-serif}
+header{background:#142b25;color:white;padding:22px 16px;text-align:center}
+header h1{margin:0 0 7px}
+main{max-width:760px;margin:auto;padding:14px}
+.card{background:white;border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 2px 9px #0000000c}
+h2{font-size:18px;margin:0 0 14px}
+label{display:block;font-size:14px;margin:10px 0 5px}
+input,select,button{font:inherit}
+input,select{width:100%;padding:11px;border:1px solid #ccd5cf;border-radius:8px;background:white}
+button{border:0;border-radius:9px;padding:12px 15px;background:#176b4c;color:white;font-weight:bold;cursor:pointer}
+button.secondary{background:#e7eee9;color:#173b2c}
+button.danger{background:#a73535}
+button:disabled{opacity:.5}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.player{border:1px solid #e0e7e2;border-radius:10px;padding:12px;margin:10px 0}
+.player h3{margin:0 0 8px;font-size:16px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:10px 6px;border-bottom:1px solid #e5eae6;text-align:center}
+th{background:#edf3ef}
+.winner{font-weight:bold;color:#147346}
+.muted{color:#66736b;font-size:13px}
+.score{font-weight:bold;font-size:17px}
+.hidden{display:none}
+details{margin-top:12px}
+summary{cursor:pointer;font-weight:bold}
+@media(max-width:440px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<h1>حاسبة الهاند</h1>
+<div>5 لاعبين · 5 جولات · الأقل نقاطاً يفوز</div>
+</header>
+<main>
+<section class="card">
+<h2>أسماء اللاعبين</h2>
+<div id="names"></div>
+<button onclick="saveNames()">حفظ الأسماء</button>
+</section>
+
+<section class="card">
+<h2 id="roundHeading">تسجيل جولة 1</h2>
+<div class="grid">
+<div>
+<label>نوع الهاند</label>
+<select id="type">
+<option value="normal">عادي</option>
+<option value="joker">جوكر</option>
+<option value="color">كولر</option>
+<option value="jokerColor">جوكر كولر</option>
+</select>
+</div>
+<div>
+<label>صاحب الهاند</label>
+<select id="winner"></select>
+</div>
+<div>
+<label>رامي الورقة الأخيرة</label>
+<select id="last"></select>
+</div>
+</div>
+<p class="muted">حدد حالة كل لاعب وأدخل مجموع أوراقه المتبقية إذا كان نازلاً.</p>
+<div id="players"></div>
+<div class="actions">
+<button onclick="calculate()">احتساب الجولة وحفظها</button>
+<button class="secondary" onclick="resetForm()">مسح النموذج</button>
+</div>
+<p id="message" class="muted"></p>
+</section>
+
+<section class="card">
+<h2>الترتيب العام</h2>
+<div id="leaderboard"></div>
+</section>
+
+<section class="card">
+<h2>سجل الجولات</h2>
+<div id="history"></div>
+</section>
+
+<section class="card">
+<h2>النسخ الاحتياطي</h2>
+<p class="muted">صدّر بياناتك للاحتفاظ بها، أو استعد نسخة سابقة.</p>
+<div class="actions">
+<button onclick="backup()">تصدير نسخة احتياطية</button>
+<button class="secondary" onclick="document.getElementById('restore').click()">استعادة نسخة</button>
+<input id="restore" type="file" accept="application/json" class="hidden" onchange="restoreBackup(event)">
+</div>
+</section>
+</main>
+
+<script>
+const KEY="oman_hand_calculator_v1";
+const types={
+ normal:{label:"عادي",mult:1,hand:-60,notDown:200,lastNotDown:250},
+ joker:{label:"جوكر",mult:2,hand:-120,notDown:400,lastNotDown:500},
+ color:{label:"كولر",mult:3,hand:-240,notDown:800,lastNotDown:1000},
+ jokerColor:{label:"جوكر كولر",mult:4,hand:-480,notDown:1200,lastNotDown:1400}
+};
+let data=JSON.parse(localStorage.getItem(KEY)||"null")||{
+ names:["اللاعب 1","اللاعب 2","اللاعب 3","اللاعب 4","اللاعب 5"],
+ rounds:[]
+};
+let editing=-1;
+
+function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
+function nameOptions(selected){
+ return data.names.map((n,i)=>`<option value="${i}" ${i===selected?"selected":""}>${esc(n)}</option>`).join("");
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+function init(){
+ document.getElementById("names").innerHTML=data.names.map((n,i)=>
+ `<label>اللاعب ${i+1}</label><input id="name${i}" value="${esc(n)}">`).join("");
+ fillSelectors();
+ renderPlayers();
+ render();
+}
+function saveNames(){
+ data.names=data.names.map((_,i)=>document.getElementById("name"+i).value.trim()||"اللاعب "+(i+1));
+ save();fillSelectors();renderPlayers();
+}
+function fillSelectors(){
+ ["winner","last"].forEach(id=>{
+ document.getElementById(id).innerHTML=data.names.map((n,i)=>
+ `<option value="${i}">${esc(n)}</option>`).join("");
+ });
+}
+function renderPlayers(){
+ document.getElementById("players").innerHTML=data.names.map((n,i)=>`
+ <div class="player">
+ <h3>${esc(n)}</h3>
+ <label>حالة اللاعب</label>
+ <select id="status${i}" onchange="toggleRemaining(${i})">
+ <option value="down">نزل</option>
+ <option value="not">لم ينزل</option>
+ </select>
+ <div id="remainingBox${i}">
+ <label>مجموع الأوراق المتبقية</label>
+ <input id="remaining${i}" type="number" min="0" value="0">
+ </div>
+ <label>تعديل النقاط يدوياً (اختياري)</label>
+ <input id="override${i}" type="number" placeholder="اتركه فارغاً للاحتساب التلقائي">
+ </div>`).join("");
+}
+function toggleRemaining(i){
+ document.getElementById("remainingBox"+i).style.display=
+ document.getElementById("status"+i).value==="down"?"block":"none";
+}
+function resetForm(){
+ editing=-1;
+ document.getElementById("roundHeading").textContent="تسجيل جولة "+(data.rounds.length+1);
+ document.getElementById("type").value="normal";
+ document.getElementById("winner").selectedIndex=0;
+ document.getElementById("last").selectedIndex=1;
+ renderPlayers();
+ document.getElementById("message").textContent="";
+}
+function calculate(){
+ const type=types[document.getElementById("type").value];
+ const winner=+document.getElementById("winner").value;
+ const last=+document.getElementById("last").value;
+ if(winner===last){alert("صاحب الهاند ورامي الورقة الأخيرة يجب أن يكونا لاعبين مختلفين.");return}
+ const players=data.names.map((name,i)=>{
+ const status=document.getElementById("status"+i).value;
+ const remaining=Math.max(0,Number(document.getElementById("remaining"+i).value)||0);
+ let score;
+ if(i===winner) score=type.hand;
+ else if(i===last){
+   score=status==="down"?(remaining*type.mult+25):type.lastNotDown;
+ } else if(status==="not") score=type.notDown;
+ else score=remaining*type.mult;
+ const manual=document.getElementById("override"+i).value;
+ if(manual.trim()!=="") score=Number(manual);
+ return {status,remaining,score,manual:manual.trim()!==""};
+ });
+ const round={type:document.getElementById("type").value,winner,last,players};
+ if(editing>=0)data.rounds[editing]=round;
+ else{
+   if(data.rounds.length>=5){alert("اكتملت الجولات الخمس. عدّل جولة سابقة إذا أردت.");return}
+   data.rounds.push(round);
+ }
+ const wasEditing=editing>=0;
+ editing=-1;
+ save();
+ resetForm();
+ document.getElementById("message").textContent=wasEditing?"تم تحديث الجولة.":"تم حفظ الجولة بنجاح.";
+}
+function totals(){
+ return data.names.map((name,i)=>({
+ name,index:i,total:data.rounds.reduce((s,r)=>s+r.players[i].score,0)
+ })).sort((a,b)=>a.total-b.total);
+}
+function render(){
+ const board=totals();
+ document.getElementById("leaderboard").innerHTML=data.rounds.length?
+ `<table><tr><th>الترتيب</th><th>اللاعب</th><th>المجموع</th></tr>${
+ board.map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)} ${i===0?"🏆":""}</td><td class="score ${i===0?"winner":""}">${p.total}</td></tr>`).join("")
+ }</table>`:"<p class='muted'>لم يتم تسجيل أي جولة بعد.</p>";
+ document.getElementById("history").innerHTML=data.rounds.length?
+ data.rounds.map((r,i)=>`
+ <details>
+ <summary>الجولة ${i+1} — ${types[r.type].label}</summary>
+ <p>صاحب الهاند: ${esc(data.names[r.winner])}</p>
+ <p>رامي الورقة الأخيرة: ${esc(data.names[r.last])}</p>
+ <table><tr><th>اللاعب</th><th>الحالة</th><th>المتبقي</th><th>النقاط</th></tr>
+ ${r.players.map((p,j)=>`<tr><td>${esc(data.names[j])}</td><td>${p.status==="down"?"نزل":"لم ينزل"}</td><td>${p.remaining}</td><td>${p.score}</td></tr>`).join("")}</table>
+ <div class="actions">
+ <button class="secondary" onclick="editRound(${i})">تعديل الجولة</button>
+ <button class="danger" onclick="deleteRound(${i})">حذف الجولة</button>
+ </div></details>`).join(""):"<p class='muted'>سجل الجولات فارغ.</p>";
+}
+function editRound(i){
+ const r=data.rounds[i];editing=i;
+ document.getElementById("roundHeading").textContent="تعديل الجولة "+(i+1);
+ document.getElementById("type").value=r.type;
+ document.getElementById("winner").value=r.winner;
+ document.getElementById("last").value=r.last;
+ r.players.forEach((p,j)=>{
+ document.getElementById("status"+j).value=p.status;
+ document.getElementById("remaining"+j).value=p.remaining;
+ document.getElementById("override"+j).value=p.manual?p.score:"";
+ toggleRemaining(j);
+ });
+ window.scrollTo({top:0,behavior:"smooth"});
+}
+function deleteRound(i){
+ if(!confirm("هل تريد حذف هذه الجولة؟"))return;
+ data.rounds.splice(i,1);save();resetForm();
+}
+function backup(){
+ const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(blob);
+ a.download="hand-backup.json";a.click();
+ URL.revokeObjectURL(a.href);
+}
+function restoreBackup(event){
+ const file=event.target.files[0];if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+ try{
+ const imported=JSON.parse(reader.result);
+ if(!Array.isArray(imported.names)||imported.names.length!==5||!Array.isArray(imported.rounds))throw Error();
+ data=imported;save();init();alert("تمت استعادة النسخة الاحتياطية.");
+ }catch(e){alert("الملف غير صالح أو ليس نسخة احتياطية من الحاسبة.")}
+ };
+ reader.readAsText(file);
+}
+init();
+</script>
+</body>
+</html>
